@@ -56,7 +56,7 @@ CUDA_VISIBLE_DEVICES=0 python drawspeech/infer.py --config_yaml drawspeech/confi
 ```
 
 ## Acknowledgement
-This repository borrows codes from the following repos. Many thanks to the authors for their great work.
+This repository borrows codes from the following repos. Many thanks to the authors for their great work.  
 AudioLDM: https://github.com/haoheliu/AudioLDM-training-finetuning?tab=readme-ov-file#prepare-python-running-environment  
 FastSpeech 2: https://github.com/ming024/FastSpeech2  
 HiFi-GAN: https://github.com/jik876/hifi-gan  
