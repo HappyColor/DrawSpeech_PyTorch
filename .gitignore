@@ -1,0 +1,23 @@
+__pycache__
+taming
+log
+esc50.zip
+ESC-50-master
+ckpt
+lightning_logs
+mlx_submit_*
+job_queue.sh
+*.wav
+# *.txt
+*.cleaned
+*.tar
+*.npy
+*.TextGrid
+TextGrid
+LJSpeech-1.1
+condor*
+wandb
+temp.py
+temp
+tests
+test.yaml

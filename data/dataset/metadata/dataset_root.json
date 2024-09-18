@@ -1,0 +1,13 @@
+{
+    "ljspeech": "./data/dataset/LJSpeech-1.1",
+
+    "metadata":{
+        "path": {
+            "ljspeech":{
+                "train": "./data/dataset/metadata/ljspeech/train.json", 
+                "test": "./data/dataset/metadata/ljspeech/test.json",
+                "val": "./data/dataset/metadata/ljspeech/val.json"
+            }
+        }
+    }
+}

@@ -1,0 +1,183 @@
+metadata_root: "./data/dataset/metadata/dataset_root.json"
+log_directory: "./log/latent_diffusion"
+project: "drawspeech"
+precision: "high"
+
+variables:
+  sampling_rate: &sampling_rate 22050 
+  mel_bins: &mel_bins 80
+  latent_embed_dim: &latent_embed_dim 8  # the output channel of diffusion model
+  latent_t_size: &latent_t_size 216 # TODO might need to change
+  latent_f_size: &latent_f_size 20
+  in_channels: &unet_in_channels 11  # the input channel of diffusion model 因为有concat这种condition方式，所以in_channel可以大于latent_embed_dim
+  optimize_ddpm_parameter: &optimize_ddpm_parameter true
+  optimize_gpt: &optimize_gpt true
+  warmup_steps: &warmup_steps 2000
+
+data: 
+  train: ["ljspeech"]
+  val: ["ljspeech"]
+  test: ["ljspeech"]
+  class_label_indices: null
+  dataloader_add_ons: ["get_preprocessed_meta"]
+
+step:
+  # val_check_interval: 200
+  validation_every_n_epochs: 5
+  save_checkpoint_every_n_steps: 1000
+  num_sanity_val_steps: 1
+  limit_val_batches: 2
+  max_steps: 80000
+  save_top_k: 3
+  save_last: ture
+
+preprocessing:
+  audio:
+    sampling_rate: *sampling_rate
+    max_wav_value: 32768.0
+    duration: &duration 10.04
+  stft:
+    filter_length: 1024
+    hop_length: 256
+    win_length: 1024
+  mel:
+    n_mel_channels: *mel_bins
+    mel_fmin: 0
+    mel_fmax: 8000
+  phoneme_pad_length: &phoneme_pad_length 135
+  preprocessed_data:
+    energy: data/dataset/metadata/ljspeech/phoneme_level/energy
+    pitch: data/dataset/metadata/ljspeech/phoneme_level/pitch
+    duration: data/dataset/metadata/ljspeech/phoneme_level/duration
+    stats_json: &stats_json data/dataset/metadata/ljspeech/phoneme_level/stats.json
+    feature: &feature_level phoneme_level
+
+model:
+  target: drawspeech.modules.latent_diffusion.ddpm.LatentDiffusion
+  params: 
+    # Autoencoder
+    first_stage_config:
+      base_learning_rate: 8.0e-06
+      target: drawspeech.modules.latent_encoder.autoencoder.AutoencoderKL
+      params: 
+        reload_from_ckpt: "log/latent_diffusion/vae_ljspeech_22k/checkpoints/checkpoint-79999.ckpt"
+        sampling_rate: *sampling_rate
+        batchsize: 4
+        monitor: val/rec_loss   # actually we use global_step
+        image_key: fbank
+        subband: 1
+        embed_dim: *latent_embed_dim
+        time_shuffle: 1
+        lossconfig:
+          target: drawspeech.losses.LPIPSWithDiscriminator
+          params:
+            disc_start: 50001
+            kl_weight: 1000.0
+            disc_weight: 0.5
+            disc_in_channels: 1
+        ddconfig: 
+          double_z: true
+          mel_bins: *mel_bins # The frequency bins of mel spectrogram
+          z_channels: 8
+          resolution: *latent_t_size
+          downsample_time: false
+          in_channels: 1
+          out_ch: 1
+          ch: 128 
+          ch_mult:
+          - 1
+          - 2
+          - 4
+          num_res_blocks: 2
+          attn_resolutions: []
+          dropout: 0.0
+    
+    # Other parameters
+    base_learning_rate: 1.0e-4
+    warmup_steps: *warmup_steps
+    optimize_ddpm_parameter: *optimize_ddpm_parameter
+    sampling_rate: *sampling_rate
+    batchsize: 32
+    linear_start: 0.0015
+    linear_end: 0.0195
+    num_timesteps_cond: 1
+    log_every_t: 200
+    timesteps: 1000
+    unconditional_prob_cfg: 0.1
+    parameterization: eps # [eps, x0, v]
+    first_stage_key: fbank
+    latent_t_size: *latent_t_size # TODO might need to change
+    latent_f_size: *latent_f_size
+    channels: *latent_embed_dim # TODO might need to change
+    monitor: train/loss
+    scale_by_std: true
+    use_tts_data_for_training: true   # useless, might need to delete this argument
+    unet_config:
+      target: drawspeech.modules.diffusionmodules.openaimodel.UNetModel
+      params:
+        image_size: 64 
+        in_channels: *unet_in_channels # The input channel of the UNet model
+        out_channels: *latent_embed_dim # TODO might need to change
+        model_channels: 128 # TODO might need to change
+        attention_resolutions:
+        # - 8
+        - 4
+        - 2
+        num_res_blocks: 2
+        channel_mult: 
+        - 1
+        - 2
+        - 3
+        # - 5
+        num_head_channels: 32
+        use_spatial_transformer: true
+        transformer_depth: 1
+        use_scale_shift_norm: ture
+    
+    cond_stage_config:
+      concat_text_encoder_with_varianceadaptor:
+        cond_stage_key: [phoneme_idx, pitch, pitch_length, energy, energy_length, pitch_sketch, energy_sketch, phoneme_duration, mel_mask]
+        conditioning_key: concat
+        target: drawspeech.conditional_models.TextEncoderwithVarianceAdaptor
+        params:
+          vocabs_size: 360
+          pad_token_id: 0
+          pad_length: *phoneme_pad_length
+          output_size: &phoneme_emb_dim 256
+          latent_t_size: *latent_t_size
+          latent_f_size: *latent_f_size
+          adaptor_params:
+            phoneme_embedding_dim: *phoneme_emb_dim
+            pitch_embedding_dim: *phoneme_emb_dim
+            energy_embedding_dim: *phoneme_emb_dim
+            pitch_quantization: linear
+            energy_quantization: linear
+            n_bins: 256
+            stats_json: *stats_json
+            pitch_feature_level: *feature_level
+            energy_feature_level: *feature_level
+          predict_detailed_curve: ture
+          prob_drop_pitch: 0.2
+          prob_drop_energy: 0.2
+          predictor_params:
+            pitch_embedding_dim: *phoneme_emb_dim
+            energy_embedding_dim: *phoneme_emb_dim
+            ffn_dim: 512
+            n_bins: 256
+            n_heads: 2
+            n_layers: 2
+      concat_pitch_energy_sketch:
+        cond_stage_key: [pitch, pitch_sketch, pitch_length, energy, energy_sketch, energy_length, noncond_mel_mask, noncond_predicted_pitch, noncond_predicted_energy]
+        conditioning_key: concat
+        target: drawspeech.conditional_models.SketchEncoder
+        params:
+          latent_t_size: *latent_t_size
+          latent_f_size: *latent_f_size
+          stats_json: *stats_json
+          pitch_feature_level: *feature_level
+          energy_feature_level: *feature_level
+    
+    evaluation_params:
+      unconditional_guidance_scale: 3.5
+      ddim_sampling_steps: 200
+      n_candidates_per_samples: 1
